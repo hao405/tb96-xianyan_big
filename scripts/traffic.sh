@@ -47,6 +47,7 @@ do
     --attn_dropout 0.15 \
     --patience 10 \
     --train_epochs 100 \
+    --use_multi_gpu \
     --devices 0,1,2,3,4,5,6,7 \
     --alpha $alpha \
     --learning_rate 0.0005 \
