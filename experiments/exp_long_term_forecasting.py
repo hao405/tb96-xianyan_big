@@ -26,6 +26,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         model = self.model_dict[self.args.model].Model(self.args).float()
 
         if self.args.use_ddp:
+            model = model.to(self.device)
             model = DDP(model, device_ids=[self.args.local_rank], find_unused_parameters=True)
         elif self.args.use_multi_gpu and self.args.use_gpu:
             model = nn.DataParallel(model, device_ids=self.args.device_ids)
