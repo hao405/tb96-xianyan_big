@@ -331,6 +331,12 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             os.makedirs(folder_path)
 
         self.model.eval()
+        
+        if isinstance(self.model, DDP):
+            model_predict = self.model.module
+        else:
+            model_predict = self.model
+
         with torch.no_grad():
             for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
                 batch_x = batch_x.float().to(self.device)
@@ -349,10 +355,10 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
                 # fc1 - channel_decoder
                 if self.args.output_attention:
-                    outputs,x,other_loss = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark,y_enc=None,is_train=False, is_out_u=False, c_est=None)[0]
+                    outputs,x,other_loss = model_predict(batch_x, batch_x_mark, dec_inp, batch_y_mark,y_enc=None,is_train=False, is_out_u=False, c_est=None)[0]
 
                 else:
-                    outputs,x,other_loss = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark,y_enc=None,is_train=False, is_out_u=False, c_est=None)
+                    outputs,x,other_loss = model_predict(batch_x, batch_x_mark, dec_inp, batch_y_mark,y_enc=None,is_train=False, is_out_u=False, c_est=None)
 
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
