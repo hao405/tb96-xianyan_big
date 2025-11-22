@@ -514,9 +514,31 @@ class NPTransitionPrior(nn.Module):
 
             residual = self.gs[i](batch_inputs)  # (batch_size x length, 1)
 
-            J = jacfwd(self.gs[i])
-            data_J = vmap(J)(batch_inputs).squeeze()
-            logabsdet = torch.log(torch.abs(data_J[:, -1]))
+            # J = jacfwd(self.gs[i])
+            # data_J = vmap(J)(batch_inputs).squeeze()
+            # logabsdet = torch.log(torch.abs(data_J[:, -1]))
+            # 修改后的代码 (使用标准 autograd)
+            # 1. 确保输入需要梯度
+            batch_inputs.requires_grad_(True)
+
+            # 2. 前向传播
+            residual = self.gs[i](batch_inputs)
+
+            # 3. 计算梯度
+            # residual 的形状是 [Batch, 1]，我们需要对 batch_inputs 求导
+            # 使用 torch.autograd.grad 计算 batched gradient
+            # d(sum(residual)) / d(input) 等价于每个样本的 gradient，因为样本间相互独立
+            grads = torch.autograd.grad(
+                outputs=residual,
+                inputs=batch_inputs,
+                grad_outputs=torch.ones_like(residual),
+                create_graph=True,  # 如果需要对这个导数继续求导（训练过程通常需要），设为 True
+                retain_graph=True,
+                only_inputs=True
+            )[0]
+
+            # 4. 获取相对于最后一个输入维度的导数 (等同于 Jacobian 的最后一列)
+            logabsdet = torch.log(torch.abs(grads[:, -1]))
 
             sum_log_abs_det_jacobian += logabsdet
             residuals.append(residual)
@@ -572,10 +594,31 @@ class NPChangeTransitionPrior(nn.Module):
 
             residual = self.gs[i](batch_inputs)  # (batch_size x length, 1)
 
-            J = jacfwd(self.gs[i])
-            data_J = vmap(J)(batch_inputs).squeeze()
-            logabsdet = torch.log(torch.abs(data_J[:, -1]))
+            # J = jacfwd(self.gs[i])
+            # data_J = vmap(J)(batch_inputs).squeeze()
+            # logabsdet = torch.log(torch.abs(data_J[:, -1]))
+            # 修改后的代码 (使用标准 autograd)
+            # 1. 确保输入需要梯度
+            batch_inputs.requires_grad_(True)
 
+            # 2. 前向传播
+            residual = self.gs[i](batch_inputs)
+
+            # 3. 计算梯度
+            # residual 的形状是 [Batch, 1]，我们需要对 batch_inputs 求导
+            # 使用 torch.autograd.grad 计算 batched gradient
+            # d(sum(residual)) / d(input) 等价于每个样本的 gradient，因为样本间相互独立
+            grads = torch.autograd.grad(
+                outputs=residual,
+                inputs=batch_inputs,
+                grad_outputs=torch.ones_like(residual),
+                create_graph=True,  # 如果需要对这个导数继续求导（训练过程通常需要），设为 True
+                retain_graph=True,
+                only_inputs=True
+            )[0]
+
+            # 4. 获取相对于最后一个输入维度的导数 (等同于 Jacobian 的最后一列)
+            logabsdet = torch.log(torch.abs(grads[:, -1]))
             sum_log_abs_det_jacobian += logabsdet
             residuals.append(residual)
 

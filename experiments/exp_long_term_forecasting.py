@@ -12,7 +12,6 @@ import time
 import warnings
 import numpy as np
 from torch.utils.data import TensorDataset, DataLoader
-from torch.nn.parallel import DistributedDataParallel as DDP
 
 warnings.filterwarnings('ignore')
 
@@ -25,10 +24,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
     def _build_model(self):
         model = self.model_dict[self.args.model].Model(self.args).float()
 
-        if self.args.use_ddp:
-            model = model.to(self.device)
-            model = DDP(model, device_ids=[self.args.local_rank], find_unused_parameters=True)
-        elif self.args.use_multi_gpu and self.args.use_gpu:
+        if self.args.use_multi_gpu and self.args.use_gpu:
             model = nn.DataParallel(model, device_ids=self.args.device_ids)
         return model
 
@@ -121,9 +117,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
         # =================== Phase 1: Pre-training ===================
         for epoch in range(self.args.pre_epoches):
-            if self.args.use_ddp and hasattr(train_loader.sampler, 'set_epoch'):
-                train_loader.sampler.set_epoch(epoch)
-
             if epoch == 0:
                 batch_x_list = []
                 batch_y_list = []
@@ -331,12 +324,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             os.makedirs(folder_path)
 
         self.model.eval()
-        
-        if isinstance(self.model, DDP):
-            model_predict = self.model.module
-        else:
-            model_predict = self.model
-
         with torch.no_grad():
             for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
                 batch_x = batch_x.float().to(self.device)
@@ -355,10 +342,10 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
                 # fc1 - channel_decoder
                 if self.args.output_attention:
-                    outputs,x,other_loss = model_predict(batch_x, batch_x_mark, dec_inp, batch_y_mark,y_enc=None,is_train=False, is_out_u=False, c_est=None)[0]
+                    outputs,x,other_loss = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark,y_enc=None,is_train=False, is_out_u=False, c_est=None)[0]
 
                 else:
-                    outputs,x,other_loss = model_predict(batch_x, batch_x_mark, dec_inp, batch_y_mark,y_enc=None,is_train=False, is_out_u=False, c_est=None)
+                    outputs,x,other_loss = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark,y_enc=None,is_train=False, is_out_u=False, c_est=None)
 
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]

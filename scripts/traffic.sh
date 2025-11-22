@@ -12,6 +12,7 @@ fi
 
 model_name=TimeBridge
 seq_len=96
+GPU=0,1,2,3,4,5,6,7
 root=./data
 
 alpha=0.35
@@ -21,7 +22,7 @@ do
   MIOPEN_DISABLE_CACHE=1 \
   MIOPEN_SYSTEM_DB_PATH="" \
   HIP_VISIBLE_DEVICES="0,1,2,3,4,5,6,7" \
-  torchrun --nproc_per_node=8 tune_big.py \
+  python -u tune_big.py \
     --is_training 1 \
     --root_path $root/traffic/ \
     --data_path traffic.csv \
@@ -46,7 +47,6 @@ do
     --attn_dropout 0.15 \
     --patience 10 \
     --train_epochs 100 \
-    --use_multi_gpu \
     --devices 0,1,2,3,4,5,6,7 \
     --alpha $alpha \
     --learning_rate 0.0005 \

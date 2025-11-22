@@ -1,7 +1,6 @@
 import time
 import optuna
 import torch
-import torch.distributed as dist
 import random
 import numpy as np
 import argparse
@@ -9,32 +8,6 @@ import os
 
 # 导入你的实验类
 from experiments.exp_long_term_forecasting import Exp_Long_Term_Forecast
-
-
-def ddp_worker_loop():
-    while True:
-        objects = [None]
-        dist.broadcast_object_list(objects, src=0)
-        data = objects[0]
-        if data == 'STOP':
-            break
-        args, setting = data
-        
-        # Ensure local_rank is set correctly for this worker
-        args.local_rank = dist.get_rank()
-        args.use_ddp = True
-        
-        # 设置 GPU (Worker side)
-        args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
-        
-        # 实例化实验
-        exp = Exp_Long_Term_Forecast(args)
-        
-        # 运行训练
-        exp.train(setting)
-        
-        # 清理 GPU 缓存
-        torch.cuda.empty_cache()
 
 
 def objective(trial):
@@ -142,21 +115,21 @@ def objective(trial):
 
     args.learning_rate = trial.suggest_float('learning_rate', 2e-4, 7e-4, log=True)
     if args.data_path == 'electricity.csv':
-        args.batch_size = trial.suggest_categorical('batch_size', [64])
+        args.batch_size = trial.suggest_categorical('batch_size', [24])
         args.alpha = trial.suggest_float('alpha', 0.15, 0.25, log=True)
     elif args.data_path == 'traffic.csv':
-        args.batch_size = trial.suggest_categorical('batch_size', [32])
+        args.batch_size = trial.suggest_categorical('batch_size', [8])
         args.alpha = trial.suggest_float('alpha', 0.3, 0.4, log=True)
     elif args.data_path == 'solar_AL.txt':
-        args.batch_size = trial.suggest_categorical('batch_size', [64])
+        args.batch_size = trial.suggest_categorical('batch_size', [16])
         args.alpha = trial.suggest_float('alpha', 0.0001, 0.3, log=True)
     else:
         args.batch_size = trial.suggest_categorical('batch_size', [16,32,48,64])
 
-    args.zd_kl_weight = trial.suggest_float('zd_kl_weight', 1e-17, 1e-12, log=True)
-    args.zc_kl_weight = trial.suggest_float('zc_kl_weight', 1e-17, 1e-12, log=True)
-    args.hmm_weight = trial.suggest_float('hmm_weight', 1e-17, 1e-12, log=True)
-    args.rec_weight = trial.suggest_float('rec_weight', 1e-17, 1e-12, log=True)
+    args.zd_kl_weight = trial.suggest_float('zd_kl_weight', 1e-30, 1e-20, log=True)
+    args.zc_kl_weight = trial.suggest_float('zc_kl_weight', 1e-30, 1e-20, log=True)
+    args.hmm_weight = trial.suggest_float('hmm_weight', 1e-30, 1e-20, log=True)
+    args.rec_weight = trial.suggest_float('rec_weight', 1e-30, 1e-20, log=True)
 
     # # 学习率调度器
     # args.ca_layers = trial.suggest_categorical('ca_layers', [2,3])
@@ -186,15 +159,6 @@ def objective(trial):
         device_ids = args.devices.split(',')
         args.device_ids = [int(id_) for id_ in device_ids]
         args.gpu = args.device_ids[0]
-    
-    # DDP Setup for Rank 0
-    if dist.is_initialized():
-        args.use_ddp = True
-        args.local_rank = dist.get_rank()
-    else:
-        args.use_ddp = False
-        args.local_rank = 0
-
     # 实例化实验
     exp = Exp_Long_Term_Forecast(args)
 
@@ -205,10 +169,6 @@ def objective(trial):
         trial.number
     )
 
-    # Broadcast to workers
-    if dist.is_initialized():
-        objects = [(args, setting)]
-        dist.broadcast_object_list(objects, src=0)
 
     # 运行训练并获取最佳验证损失 (这依赖于第一步的修改)
     exp.train(setting)
@@ -230,17 +190,6 @@ def objective(trial):
 
 # ---- 5. 创建 Study 并开始优化 ----
 if __name__ == '__main__':
-    # DDP Initialization
-    local_rank = int(os.environ.get("LOCAL_RANK", -1))
-    if local_rank != -1:
-        dist.init_process_group(backend='nccl')
-        torch.cuda.set_device(local_rank)
-        print(f"Rank {dist.get_rank()} initialized.")
-        
-        if dist.get_rank() > 0:
-            ddp_worker_loop()
-            exit(0)
-
     # 'minimize' 表示我们的目标是让 objective 函数的返回值（验证损失）最小化
     start_time = time.time()
     parser = argparse.ArgumentParser(description='getting file name')
@@ -254,12 +203,7 @@ if __name__ == '__main__':
 
     # 'n_trials' 是你想要尝试的超参数组合的总次数
     # 从一个较小的数字开始，比如 20，然后再增加
-    study.optimize(objective, n_trials=4)
-    
-    # Stop workers
-    if dist.is_initialized() and dist.get_rank() == 0:
-        objects = ['STOP']
-        dist.broadcast_object_list(objects, src=0)
+    study.optimize(objective, n_trials=3)
 
     # ---- 6. 输出优化结果 ----
     print("\n\n--- 优化完成 ---")
