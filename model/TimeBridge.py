@@ -316,25 +316,58 @@ class Encoder_ZD(nn.Module):
     def kl_loss(self, mus, logvars, z_est, c_embedding):
         lags_and_length = z_est.shape[1]
 
+        # 0: 添加方差下界正则化，防止后验坍缩
+        # 计算 logvars 的平均值，如果太小，添加惩罚
+        logvars_mean = logvars.mean()
+        variance_penalty = torch.relu(-2.0 - logvars_mean) * 0.1  # 如果平均 logvar < -2，添加惩罚
 
-        q_dist = D.Normal(mus, torch.exp(logvars / 2))
+        # 1: 限制 logvars 范围，防止方差过小或过大导致数值不稳定
+        logvars = torch.clamp(logvars, min=-5.0, max=10.0)  # 改为 -5.0，不要让方差太小
+        # 处理 NaN
+        logvars = torch.nan_to_num(logvars, nan=0.0, posinf=10.0, neginf=-5.0)
+
+        # 2: 添加 epsilon 防止数值下溢
+        std = torch.exp(logvars / 2) + 1e-6
+        q_dist = D.Normal(mus, std)
         log_qz = q_dist.log_prob(z_est)
-        # print(q_dist)
+
+        # 检查是否有 NaN 或 Inf
+        # if torch.isnan(log_qz).any() or torch.isinf(log_qz).any():
+        #     print(f"⚠️ Warning: NaN or Inf in log_qz! min={log_qz.min():.2e}, max={log_qz.max():.2e}")
+        #     log_qz = torch.nan_to_num(log_qz, nan=0.0, posinf=100.0, neginf=-100.0)
+
         # Future KLD
         log_qz_laplace = log_qz
         residuals, logabsdet = self.nonstationary_transition_prior.forward(z_est, c_embedding)
 
+        # 3: 限制 residuals 范围，防止 log_prob 计算出极值
+        residuals = torch.clamp(residuals, min=-50.0, max=50.0)
+
+        # 3.5: 限制 logabsdet 范围
+        logabsdet = torch.clamp(logabsdet, min=-100.0, max=100.0)
+
         log_pz_laplace = torch.sum(self.nonstationary_dist.log_prob(
             residuals), dim=1) + logabsdet.sum(dim=1)
-        # print(log_pz_laplace)
-        # print(log_qz_laplace)
+
+        # 调试信息
+        # if torch.rand(1).item() < 0.02:  # 2% 概率打印
+        #     log_qz_sum = torch.sum(torch.sum(log_qz_laplace, dim=-1), dim=-1).mean()
+        #     print(f"[ZD KL Debug] log_q_sum: {log_qz_sum:.2e}, log_p: {log_pz_laplace.mean():.2e}, "
+        #           f"logvar_mean: {logvars_mean:.2e}")
+
         kld_laplace = (
                               torch.sum(torch.sum(log_qz_laplace, dim=-1), dim=-1) - log_pz_laplace) / (
                           lags_and_length)
         kld_laplace = kld_laplace.mean()
-        # 4: 使用绝对值
-        loss = torch.abs(kld_laplace)
 
+        # 4: 使用绝对值 + 方差惩罚
+        loss = torch.abs(kld_laplace) + variance_penalty
+
+        # 记录原始 KL 的符号
+        if torch.rand(1).item() < 0.02:  # 2% 概率打印
+            if kld_laplace < -5.0:
+                print(f"[ZD] Negative KL: {kld_laplace:.4f} -> abs: {torch.abs(kld_laplace):.4f}, "
+                      f"var_penalty: {variance_penalty:.4f}")
 
         return loss
 
@@ -406,10 +439,27 @@ class Encoder_ZC(nn.Module):
 
     def kl_loss(self, mus, logvars, z_est):
         lags_and_length = z_est.shape[1]
-        q_dist = D.Normal(mus, torch.exp(logvars / 2))
+
+        # 0: 添加方差下界正则化
+        # logvars_mean = logvars.mean()
+        # variance_penalty = torch.relu(-2.0 - logvars_mean) * 0.1
+
+        # 1: 限制 logvars 范围，不要太小
+        logvars = torch.clamp(logvars, min=-5.0, max=10.0)
+        # 处理 NaN
+        logvars = torch.nan_to_num(logvars, nan=0.0, posinf=10.0, neginf=-5.0)
+
+        # 2: 添加 epsilon 防止数值下溢
+        std = torch.exp(logvars / 2) + 1e-6
+        q_dist = D.Normal(mus, std)
         log_qz = q_dist.log_prob(z_est)
 
-        # Past KLD 让过去的时间步服从正态分布
+        # 检查是否有 NaN 或 Inf
+        # if torch.isnan(log_qz).any() or torch.isinf(log_qz).any():
+        #     print(f"⚠️ Warning: NaN or Inf in log_qz (ZC)! min={log_qz.min():.2e}, max={log_qz.max():.2e}")
+        #     log_qz = torch.nan_to_num(log_qz, nan=0.0, posinf=100.0, neginf=-100.0)
+
+        # Past KLD
         p_dist = D.Normal(torch.zeros_like(
             mus[:, :self.lags]), torch.ones_like(logvars[:, :self.lags]))
         log_pz_normal = torch.sum(
@@ -418,11 +468,25 @@ class Encoder_ZC(nn.Module):
             torch.sum(log_qz[:, :self.lags], dim=-1), dim=-1)
         kld_normal = log_qz_normal - log_pz_normal
         kld_normal = kld_normal.mean()
-        # Future KLD qz 是后验，pz 是先验
+
+        # Future KLD
         log_qz_laplace = log_qz[:, self.lags:]
         residuals, logabsdet = self.stationary_transition_prior(z_est)
+
+        # # 3: 限制 residuals 范围
+        # residuals = torch.clamp(residuals, min=-50.0, max=50.0)
+        #
+        # # 3.5: 限制 logabsdet 范围
+        # logabsdet = torch.clamp(logabsdet, min=-100.0, max=100.0)
+
         log_pz_laplace = torch.sum(self.stationary_dist.log_prob(
             residuals), dim=1) + logabsdet.sum(dim=1)
+
+        # 调试信息
+        # if torch.rand(1).item() < 0.02:  # 2% 概率打印
+        #     print(f"[ZC KL Debug] kld_normal: {kld_normal:.2e}, kld_laplace: {(torch.sum(torch.sum(log_qz_laplace, dim=-1), dim=-1) - log_pz_laplace).mean()/(lags_and_length - self.lags):.2e}, "
+        #           f"logvar_mean: {logvars_mean:.2e}")
+
         kld_laplace = (
                               torch.sum(torch.sum(log_qz_laplace, dim=-1), dim=-1) - log_pz_laplace) / (
                               lags_and_length - self.lags)
@@ -514,31 +578,9 @@ class NPTransitionPrior(nn.Module):
 
             residual = self.gs[i](batch_inputs)  # (batch_size x length, 1)
 
-            # J = jacfwd(self.gs[i])
-            # data_J = vmap(J)(batch_inputs).squeeze()
-            # logabsdet = torch.log(torch.abs(data_J[:, -1]))
-            # 修改后的代码 (使用标准 autograd)
-            # 1. 确保输入需要梯度
-            batch_inputs.requires_grad_(True)
-
-            # 2. 前向传播
-            residual = self.gs[i](batch_inputs)
-
-            # 3. 计算梯度
-            # residual 的形状是 [Batch, 1]，我们需要对 batch_inputs 求导
-            # 使用 torch.autograd.grad 计算 batched gradient
-            # d(sum(residual)) / d(input) 等价于每个样本的 gradient，因为样本间相互独立
-            grads = torch.autograd.grad(
-                outputs=residual,
-                inputs=batch_inputs,
-                grad_outputs=torch.ones_like(residual),
-                create_graph=True,  # 如果需要对这个导数继续求导（训练过程通常需要），设为 True
-                retain_graph=True,
-                only_inputs=True
-            )[0]
-
-            # 4. 获取相对于最后一个输入维度的导数 (等同于 Jacobian 的最后一列)
-            logabsdet = torch.log(torch.abs(grads[:, -1]))
+            J = jacfwd(self.gs[i])
+            data_J = vmap(J)(batch_inputs).squeeze()
+            logabsdet = torch.log(torch.abs(data_J[:, -1]))
 
             sum_log_abs_det_jacobian += logabsdet
             residuals.append(residual)
@@ -594,22 +636,10 @@ class NPChangeTransitionPrior(nn.Module):
 
             residual = self.gs[i](batch_inputs)  # (batch_size x length, 1)
 
-            # J = jacfwd(self.gs[i])
-            # data_J = vmap(J)(batch_inputs).squeeze()
-            # logabsdet = torch.log(torch.abs(data_J[:, -1]))
+            J = jacfwd(self.gs[i])
+            data_J = vmap(J)(batch_inputs).squeeze()
+            logabsdet = torch.log(torch.abs(data_J[:, -1]))
 
-            # 修改后的代码 (使用标准 autograd)
-            batch_inputs.requires_grad_(True)
-            residual = self.gs[i](batch_inputs)
-            grads = torch.autograd.grad(
-                outputs=residual,
-                inputs=batch_inputs,
-                grad_outputs=torch.ones_like(residual),
-                create_graph=True,  # 如果需要对这个导数继续求导（训练过程通常需要），设为 True
-                retain_graph=True,
-                only_inputs=True
-            )[0]
-            logabsdet = torch.log(torch.abs(grads[:, -1]))
             sum_log_abs_det_jacobian += logabsdet
             residuals.append(residual)
 
@@ -759,7 +789,7 @@ class Model(nn.Module):
         #print(torch.cat([zc_rec_mean.permute(0, 2, 1), zc_pred_mean.permute(0, 2, 1)], dim=2).permute(0, 2, 1).shape)
 
         # dec_out = self.final_mlp(dec_out)
-        x = dec_out_x * std + mean
+        x = self.final_mlp_x(dec_out_x)
         y = dec_out * std + mean
 
 
