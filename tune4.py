@@ -117,8 +117,8 @@ def objective(trial):
     args.batch_size = trial.suggest_categorical('batch_size', [16,32,48,64])
     args.zd_kl_weight = trial.suggest_float('zd_kl_weight', 1e-17, 1e-12, log=True)
     args.zc_kl_weight = trial.suggest_float('zc_kl_weight', 1e-17, 1e-12, log=True)
-    args.hmm_weight = trial.suggest_float('hmm_weight', 1e-17, 1e-12, log=True)
-    args.rec_weight = trial.suggest_float('rec_weight', 1e-17, 1e-12, log=True)
+    args.hmm_weight = trial.suggest_float('hmm_weight', 1e-20, 1e-13, log=True)
+    args.rec_weight = trial.suggest_float('rec_weight', 1e-20, 1e-13, log=True)
 
     # 学习率调度器
 
