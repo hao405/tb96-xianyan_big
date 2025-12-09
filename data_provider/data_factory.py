@@ -1,6 +1,5 @@
 from data_provider.data_loader import Dataset_ETT_hour, Dataset_ETT_minute, Dataset_Custom, Dataset_Solar, Dataset_PEMS
 from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
 
 data_dict = {
     'ETTh1': Dataset_ETT_hour,
@@ -40,17 +39,10 @@ def data_provider(args, flag):
         seasonal_patterns=args.seasonal_patterns
     )
     print(flag, len(data_set))
-    
-    sampler = None
-    if args.use_ddp and flag == 'train':
-        sampler = DistributedSampler(data_set)
-        shuffle_flag = False # Sampler handles shuffling
-
     data_loader = DataLoader(
         data_set,
         batch_size=batch_size,
         shuffle=shuffle_flag,
         num_workers=args.num_workers,
-        drop_last=drop_last,
-        sampler=sampler)
+        drop_last=drop_last)
     return data_set, data_loader
