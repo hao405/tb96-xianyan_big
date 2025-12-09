@@ -115,7 +115,7 @@ def objective(trial):
     args = parser.parse_args()  # 使用空列表来避免解析命令行
 
     args.learning_rate = trial.suggest_float('learning_rate', 1e-4, 4e-4, log=True)
-    args.batch_size = trial.suggest_categorical('batch_size', [16, 32, 48])
+    args.batch_size = trial.suggest_categorical('batch_size', [16, 32])
 
     args.zd_kl_weight = trial.suggest_float('zd_kl_weight', 1e-20, 1e-10, log=True)
     args.zc_kl_weight = trial.suggest_float('zc_kl_weight', 1e-25, 1e-10, log=True)
@@ -206,7 +206,7 @@ if __name__ == '__main__':
         print(f"    - {key}: {value}")
 
     # ---- 7. 将最佳结果写入文件 ----
-    output_dir = 'optuna_weatherxiaorong2'
+    output_dir = 'optuna_weather'
     os.makedirs(output_dir, exist_ok=True)  # 确保文件夹存在
     # 从 data_path 中提取基本文件名，以避免路径问题
     # 例如, 从 './data/ETTh1.csv' 提取出 'ETTh1'
