@@ -738,18 +738,18 @@ class Model(nn.Module):
             if c_est == None:
                 E_logp_x, c_est = self.encoder_u(torch.cat([x_enc, y_enc], dim=1))
                 hmm_loss = -E_logp_x.mean()
-            embeddings = self.c_embeddings(c_est)
+            # embeddings = self.c_embeddings(c_est)
 
             # 正确的拼接方式：在时间维度(dim=1)上拼接 rec 和 pred
             # zc_rec_mean: (B, seq_len, zc_dim), zc_pred_mean: (B, pred_len, zc_dim)
             # cat后: (B, seq_len+pred_len, zc_dim)
-            zc_kl_loss = self.encoder_zc.kl_loss(torch.cat([zc_rec_mean, zc_pred_mean], dim=1),
-                                                 torch.cat([zc_rec_std, zc_pred_std], dim=1),
-                                                 torch.cat([zc_rec, zc_pred], dim=1))
-            zd_kl_loss = self.encoder_zd.kl_loss(torch.cat([zd_rec_mean, zd_pred_mean], dim=1),
-                                                 torch.cat([zd_rec_std, zd_pred_std], dim=1),
-                                                 torch.cat([zd_rec, zd_pred], dim=1), embeddings)
-            other_loss += zc_kl_loss * self.configs.zc_kl_weight + zd_kl_loss * self.configs.zd_kl_weight
+            # zc_kl_loss = self.encoder_zc.kl_loss(torch.cat([zc_rec_mean, zc_pred_mean], dim=1),
+            #                                      torch.cat([zc_rec_std, zc_pred_std], dim=1),
+            #                                      torch.cat([zc_rec, zc_pred], dim=1))
+            # zd_kl_loss = self.encoder_zd.kl_loss(torch.cat([zd_rec_mean, zd_pred_mean], dim=1),
+            #                                      torch.cat([zd_rec_std, zd_pred_std], dim=1),
+            #                                      torch.cat([zd_rec, zd_pred], dim=1), embeddings)
+            # other_loss += zc_kl_loss * self.configs.zc_kl_weight + zd_kl_loss * self.configs.zd_kl_weight
             other_loss += hmm_loss * self.configs.hmm_weight
             # print("zc_kl_loss:", zc_kl_loss.item(), "zd_kl_loss:", zd_kl_loss.item(), "hmm_loss:", hmm_loss.item(), "other_loss:", other_loss.item())
             if is_out_u:
