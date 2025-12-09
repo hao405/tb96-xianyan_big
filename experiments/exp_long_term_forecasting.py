@@ -115,7 +115,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                                                 epochs=self.args.train_epochs,
                                                 max_lr=self.args.learning_rate)
 
-        # Phase 1: Pre-training
+        # =================== Phase 1: Pre-training ===================
         for epoch in range(self.args.pre_epoches):
             if epoch == 0:
                 batch_x_list = []
@@ -205,7 +205,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             if self.args.lradj != 'TST':
                 adjust_learning_rate(model_optim, None, epoch + 1, self.args)
 
-        #Phase 2: Fine-tuning
+        # =================== Phase 2: Fine-tuning ===================
 
         dataset = TensorDataset(
             torch.cat(batch_u_list, dim=0),
